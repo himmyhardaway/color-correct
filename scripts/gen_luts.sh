@@ -1,8 +1,9 @@
 #!/bin/bash
 # Regenerate all .cube LUTs from the look chains (subtle defaults + full-strength)
+# The original nine, plus FITTED looks reverse-engineered from named creators.
 set -e
 cd "$(dirname "$0")/.."
-mkdir -p luts/subtle luts/full
+mkdir -p luts/subtle luts/full luts/fitted luts/fitted-full
 
 gen() { python3 scripts/chain2cube.py "$3" "luts/$1/$2.cube" "$2 ($1)"; }
 
@@ -28,4 +29,17 @@ gen full velvet      "curves=master='0/0.07 0.5/0.5 1/0.87',colortemperature=tem
 gen full popsicle    "eq=brightness=0.02:contrast=1.06,curves=master='0/0.05 0.5/0.53 1/1',vibrance=intensity=0.12,colorbalance=gh=0.03"
 gen full terracotta  "eq=contrast=1.07,colortemperature=temperature=5200,colorbalance=gs=-0.04:gm=-0.02,curves=master='0/0.02 0.5/0.5 1/0.98'"
 
-echo "done: $(ls luts/subtle | wc -l | tr -d ' ') subtle + $(ls luts/full | wc -l | tr -d ' ') full"
+# --- FITTED looks -------------------------------------------------------
+# Each one reverse-engineered from a named creator via consensus
+# fingerprinting (consensus.py over ~20 frames spanning several
+# environments; only tight-IQR invariants survive). Credits in README.md.
+#
+# Sable — fitted from Cam James (youtube.com/@CamJames).
+# Signature: lifted matte toe (p1~13) + FULL whites (p99~250) + neutral
+# shadows (shadG~0, the tightest number in his fingerprint). The lifted
+# toe is why it reads filmic; the full whites are why it does not wash
+# out deep skin the way a lift-plus-rolloff look does.
+gen fitted sable      "curves=master='0/0.04 0.25/0.245 0.7/0.75 0.93/1 1/1',eq=contrast=1.02,vibrance=intensity=0.06"
+gen fitted-full sable "curves=master='0/0.08 0.25/0.25 0.7/0.755 0.88/1 1/1',eq=contrast=1.04,vibrance=intensity=0.12"
+
+echo "done: $(ls luts/subtle | wc -l | tr -d ' ') subtle + $(ls luts/full | wc -l | tr -d ' ') full + $(ls luts/fitted | wc -l | tr -d ' ') fitted"

@@ -1,12 +1,21 @@
 #!/usr/bin/env python3
 """Consensus grade fingerprint: per-frame stats + median/IQR across all frames.
-The grade = what survives across every scene; scene color averages out."""
+The grade = what survives across every scene; scene color averages out.
+
+Usage: python3 consensus.py [dir]   (default: current directory)
+Reads every .jpg/.jpeg/.png in `dir` — frames can be named anything."""
 import glob
+import os
+import sys
 import numpy as np
 from PIL import Image
 
 rows = []
-files = sorted(glob.glob("f_*.jpg"))
+d = sys.argv[1] if len(sys.argv) > 1 else "."
+files = sorted(f for ext in ("jpg", "jpeg", "png")
+               for f in glob.glob(os.path.join(d, f"*.{ext}")))
+if not files:
+    sys.exit(f"no frames found in {d!r}")
 for path in files:
     im = Image.open(path).convert("RGB")
     im.thumbnail((960, 960))
@@ -27,7 +36,8 @@ for path in files:
     srb, sg = band(0, 64)
     mrb, mg = band(64, 160)
     hrb, hg = band(160, 255)
-    rows.append([path.replace("f_", "").replace(".jpg", ""), p1, p50, p99, p90 - p10, sat, srb, sg, mrb, mg, hrb, hg])
+    name = os.path.splitext(os.path.basename(path))[0].replace("f_", "")
+    rows.append([name[:17], p1, p50, p99, p90 - p10, sat, srb, sg, mrb, mg, hrb, hg])
 
 hdr = ["frame", "p1", "p50", "p99", "spread", "sat%", "shadRB", "shadG", "midRB", "midG", "hiRB", "hiG"]
 print(f"{hdr[0]:<18}" + "".join(f"{h:>8}" for h in hdr[1:]))

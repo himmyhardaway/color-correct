@@ -1,6 +1,6 @@
 ---
 name: color-correct
-description: Grade a video file with your AI agent as the colorist — it looks at frames, diagnoses casts/exposure/saturation, authors a readable ffmpeg grade, previews side-by-side, iterates, renders. Non-destructive. Nine named looks (Golden Hour, Honey, Linen, Super 8, Oat Milk, Espresso, Velvet, Popsicle, Terracotta) reverse-engineered from creators with great color, each shipped as a .cube LUT too. Use when the user says "color correct this", "/color-correct", "make this look good", "apply Oat Milk to this clip", "show me all the looks on this video", or "make my footage look like [creator]" (Steal mode via --like). ALWAYS starts by showing the menu — a contact sheet of all nine looks on the user's own footage, each look rendered on one or two frames of the footage (two — e.g. talking head + differently-lit b-roll — whenever scenes vary, so a look that flatters one scene but wrecks another is caught) — before applying anything; a requested look or AI recommendation is marked on the sheet for confirmation. Steal mode fits new looks from a reference.
+description: Grade a video file with your AI agent as the colorist — it looks at frames, diagnoses casts/exposure/saturation, authors a readable ffmpeg grade, previews side-by-side, iterates, renders. Non-destructive. Nine named looks (Golden Hour, Honey, Linen, Super 8, Oat Milk, Espresso, Velvet, Popsicle, Terracotta) reverse-engineered from creators with great color, plus fitted looks credited to named creators (Sable, from Cam James), each shipped as a .cube LUT too. Tuned and gated for deep skin tones. Use when the user says "color correct this", "/color-correct", "make this look good", "apply Oat Milk to this clip", "show me all the looks on this video", or "make my footage look like [creator]" (Steal mode via --like). ALWAYS starts by showing the menu — a contact sheet of all nine looks on the user's own footage, each look rendered on one or two frames of the footage (two — e.g. talking head + differently-lit b-roll — whenever scenes vary, so a look that flatters one scene but wrecks another is caught) — before applying anything; a requested look or AI recommendation is marked on the sheet for confirmation. Steal mode fits new looks from a reference.
 ---
 
 # Color Correct — AI colorist skill
@@ -58,6 +58,18 @@ for t in 2 15 40 ...; do ffmpeg -y -ss $t -i IN.mp4 -frames:v 1 -q:v 2 /tmp/colo
 ### Step 1 — Diagnose (look + measure)
 Read the frames. Run `measure.py`. Name what's wrong in plain words *before* touching filters: "green webcam cast in mids, blacks crushed, skin under-saturated". **Classify the content**: talking head, b-roll, screen recording, mixed edit. Screen recordings and UI captures should NOT be graded hard — a look that flatters skin will yellow a white webpage. Mixed edits get a conservative global grade.
 
+### Step 1b — Diagnose the LIGHTING (not just the color)
+
+A grade redistributes light that was recorded; it cannot invent modeling the lighting never produced. Crushed skin is gone — no curve recovers it. So before authoring a chain, measure the lighting and *say so plainly*, because the real fix is often a bounce board, not a filter. This matters most on deep skin, where less light is reflected back and underexposure is the default failure.
+
+Over skin pixels (reuse `skincheck.skin_mask`), report:
+- **subject vs background** — median skin luma against the wall/background behind. If the background is brighter than the face, the subject is underlit *relative to the scene*; that reads flat no matter what look is applied. This is the single most common fixable problem.
+- **lit-vs-shadow range** — `log2(p95/p05)` of skin luma. ~1–1.5 stops = soft and flattering; ≥2 stops = a hard key with no fill.
+- **crushed** — % of skin below luma 40. Detail already lost.
+- **blown** — % of skin above 250. Specular clipped; unrecoverable, and unlike crush it cannot be lifted at all.
+
+Measured example (deep-skin talking head, window key camera-right, no fill): skin median 93 against a 150–215 wall, 2.5 stop range, 7.8% crushed, 0% blown → *"you're a stop darker than your own wall and the shadow side has no fill; a bounce on camera-left buys more than any look here."* Say the lighting note first, then grade what you actually have.
+
 ### Step 2 — Author the grade
 Write the chain as an ordered, commented list the user can approve.
 
@@ -87,6 +99,16 @@ Nine looks, each reverse-engineered from a creator whose color work we admire �
 | **Terracotta** | warm + contrasty, magenta-leaning shadows, rich | `eq=contrast=1.035,colortemperature=temperature=5850,colorbalance=gs=-0.02:gm=-0.01,curves=master='0/0.01 0.5/0.5 1/0.99'` |
 
 **Full strength** = double every parameter's distance from neutral (temp toward the value 2× further from 6500, curve offsets ×2, colorbalance ×2, vibrance ×2, contrast 1.03 → 1.06, saturation 0.95 → 0.9).
+
+### Step 2b-ii — Fitted looks (this fork)
+
+Looks fitted from a named creator via Steal mode, each credited in the README. They live in `luts/fitted/` and `luts/fitted-full/` and belong on the menu alongside the nine.
+
+| Look | Fitted from | Character | Chain (subtle, default) |
+|---|---|---|---|
+| **Sable** | [Cam James](https://www.youtube.com/@CamJames) | lifted matte toe, full whites, neutral shadows — filmic without flatness | `curves=master='0/0.04 0.25/0.245 0.7/0.75 0.93/1 1/1',eq=contrast=1.02,vibrance=intensity=0.06` |
+
+**Why Sable matters for the rest of the set.** Its fingerprint is a lifted black floor (p1≈13) *and* full whites (p99≈250) — the nine lift blacks while also pulling whites down to 0.9–0.95, and that combination is what reads as washed out on deep skin. Matte is not the problem; matte **plus** highlight rolloff is. When fitting a new look, treat the white anchor as the thing to protect.
 
 **Faster path:** every look also exists as a `.cube` LUT in `luts/{subtle,full}/` — `lut3d=luts/subtle/golden-hour.cube` applies identically to the chain (verified ~1/255). Use the chains when you need to *adapt* a look to the footage; use the LUTs for straight application or for handing to an NLE. Regenerate after editing chains: `scripts/gen_luts.sh` (uses `scripts/chain2cube.py`, HALD-CLUT method — per-pixel filters only, no spatial filters like `unsharp` in a LUT-able chain).
 
@@ -129,10 +151,16 @@ Eyes are the first check; this makes it mechanical:
 python3 scripts/skincheck.py src_frame.jpg graded_frame.jpg
 ```
 Detects skin pixels in the original (tightened YCbCr box + saturation bounds — the classic box false-positives on beige walls) and measures how the grade moved them:
-- **PASS** (exit 0) — hue shift < 6°, sat change < 25% → proceed
+- **PASS** (exit 0) — hue shift < 6°, sat change < 25%, density holding → proceed
 - **SOFTEN** (exit 1) — halve the look strength, re-render the preview, re-check
 - **FAIL** (exit 2) — the grade breaks skin. Don't just soften: diagnose. Usually means WB wasn't corrected first, or the look is wrong for this footage.
 - **SKIP** — <2% skin in frame (b-roll): judge by neutrals instead.
+
+**ASHY verdicts (density).** Hue and saturation *means* cannot see "washed out": a matte lift drains contrast *inside* the skin while leaving both means nearly unmoved. So the gate also tracks, over skin pixels only — **spread** (p90−p10 of skin luma, the facial modeling), **sat floor** (p10 of skin saturation, the ashiness canary) and **specular** (p99 of skin luma, the sheen that models deep skin). A drop of ≥12% in spread or sat floor is `SOFTEN (ASHY)`; ≥22% is `FAIL (ASHY)`. Fix by anchoring the black floor, swapping `eq=saturation<1` for `vibrance`, and raising the white anchor — not by softening blindly.
+
+Whose face this protects: where a subject's skin sits in the tonal range decides whether a black lift reads as "filmic" or as "ashy". Lighter skin sits in the upper mids so a lift only touches background shadow; deeper skin sits in and just above the lifted range, so the same lift lands on the face. Measured on a deep-skin talking head, all nine original looks reduced skin luma spread (−0.4% to −12.3%) and Oat Milk failed at −26% sat floor.
+
+**Check the mask before trusting the number** — `--debug` writes `skinmask_debug.jpg`, lit pixels being what the gate measures. A warm beige wall is genuinely close to skin in chroma and is the main false positive.
 
 Run the gate on 2–3 frames across the runtime (lighting changes move skin too). White balance is protected by the same mechanism upstream: the Fix pass neutralizes casts *before* any look, and the gate catches it if that step was skipped — a look on top of a cast fails the hue check immediately.
 
@@ -147,6 +175,10 @@ Audio stream-copied; bt709 tags preserved. Verify frame pairs at 3 timestamps ac
 ## Taste rules
 - **Correct, then grade.** A look on top of a cast = the cast, warmer.
 - **Skin is the referee.** Any move that breaks skin loses.
+- **Matte is fine; matte plus rolloff is not.** Lifting the black floor *and* pulling whites down squeezes the image into a band of greys — on deep skin that lands inside the face. Lift the toe if the look wants it, but keep the white anchor ≥0.96. Sable (p1≈13, p99≈250) is the reference.
+- **`vibrance`, never `eq=saturation<1`, when a person is in frame.** Global desaturation drains the red-orange that deep skin depends on; vibrance protects already-saturated pixels and skin.
+- **Put contrast in the mids.** `eq=contrast` or an S-curve through 0.25/0.75 — not by crushing shadows, where deeper skin lives.
+- **Protect the specular.** The sheen on forehead, nose and cheekbones *is* the facial modeling on deep skin. Heavy highlight rolloff flattens the face.
 - **Subtle wins.** If the side-by-side screams, halve everything.
 - **Matte = lifted blacks + pulled whites**, not low contrast.
 - **Split-tone via `colorbalance` bands**, warmth via `colortemperature`, mids via `gamma` — one job per filter, in order.

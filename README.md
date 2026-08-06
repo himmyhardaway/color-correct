@@ -53,6 +53,28 @@ The single-frame version of this gets it wrong in fascinating ways — one creat
 
 Looks studied from creators we admire: [Elias & Kajsa](https://www.youtube.com/@eliasandkajsa), [Benji Plant](https://www.youtube.com/@benjiplant), [Jonna Jinton](https://www.youtube.com/@jonnajinton), [Meek Surf](https://www.youtube.com/@MeekSurf), [Radhi Devlukia](https://www.youtube.com/watch?v=mL3WBL1P0qY), [Bryan Johnson](https://www.youtube.com/@BryanJohnson), [Enrico Tartarotti](https://www.youtube.com/@enricotartarotti), [David Dobrik](https://www.youtube.com/@DavidDobrik), [Paige Wassel](https://www.youtube.com/@wasselpa). 💛 These are *interpretations* of their color character, derived from published videos — go watch them.
 
+## Fitted looks — this fork
+
+Every look in `luts/fitted/` is reverse-engineered from one named creator and credited openly. Same consensus method as above, with one addition: each fit must also clear the deep-skin gate (see below) before it ships.
+
+| Look | Fitted from | Signature |
+|---|---|---|
+| **Sable** | [Cam James](https://www.youtube.com/@CamJames) 💛 | lifted matte toe (p1≈13) + **full** whites (p99≈250) + neutral shadows (shadG≈0) |
+
+Sable is the reason this fork exists. It proves a matte toe is *not* what washes out deep skin — lifting blacks **while also rolling the whites off** is. Cam lifts his blacks and leaves the whites at full, so the tonal range stays wide. The look reads filmic without going flat, and it gains skin density instead of losing it (+13% luma spread, +25% saturation floor on our test footage).
+
+## Built for deep skin
+
+The original nine were measured, not guessed — but every one of them lifts the black floor (`0/0.018`–`0/0.035`), four desaturate globally (`eq=saturation` 0.95–0.985), and several roll whites down to `1/0.9`. On a deep-skin subject those three compound: the lift lands *inside* the face rather than on background shadow, the desaturation drains the red-orange the skin depends on, and the rolloff flattens the specular sheen that does the facial modeling. Measured on a deep-skin talking head, all nine reduced skin luma spread (−0.4% to −12.3%); Oat Milk failed outright at −26% saturation floor.
+
+Where a subject's skin sits in the tonal range decides who this hits. That's a fixable property of the chains, so this fork fixes it:
+
+- **`skincheck.py` measures density, not just hue.** Skin luma spread, saturation floor (p10) and specular ceiling (p99) — a look can hold hue and saturation *means* perfectly while going ashy, and the original gate could not see it.
+- **The detector no longer discards shadowed skin.** The classic luma floor of `y>60` silently drops the darker part of a deep-skin face before measuring, so the gate judges a brighter, cherry-picked subset. One measured face spanned y=69 (shadowed cheek) to y=214 (lit cheek); the floor is now 28.
+- **Warm walls are rejected harder.** `cb>=97` plus a `cr-cb<=58` ceiling; beige wall clusters near cb 94 with cr−cb≈64, skin runs cb 100–118 with cr−cb≈48–55. Cut wall leakage 58%→20% on the test frame. Imperfect by nature — use `skincheck.py a.jpg b.jpg --debug` to eyeball the mask on new footage.
+
+Discipline for fitting new looks: anchor or barely lift the black floor, keep the white anchor ≥0.96, prefer `vibrance` over `eq=saturation<1`, and put contrast in the mids. Then let the gate decide.
+
 ## Install
 
 ```bash
